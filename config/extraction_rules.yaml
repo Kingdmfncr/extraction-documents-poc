@@ -1,0 +1,47 @@
+# Règles d'extraction déclaratives, lues par src/extractor.py (pas de regex
+# codée en dur dans le code Python) — même principe que config/rules.yaml
+# de data-quality-pipeline.
+#
+# Chaque champ a une ou plusieurs regex candidates, essayées dans l'ordre
+# jusqu'à la première qui matche : gère les variations réelles de mise en
+# page (2 formats de date différents) sans code dédié par format.
+# "critique: false" signifie que le champ peut légitimement être absent du
+# document (ex. SIRET omis par le fournisseur) — l'absence n'est alors pas
+# une anomalie d'extraction, juste un champ à demander en manuel.
+
+champs:
+  numero_facture:
+    patterns:
+      - 'Facture\s+(FA-\d{4}-\d{4})'
+    critique: true
+
+  date_facture:
+    patterns:
+      - '(\d{2}/\d{2}/\d{4})'
+      - '(\d{1,2}\s+(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+\d{4})'
+    critique: true
+
+  siret:
+    patterns:
+      - 'SIRET\s*:\s*([\d\s]{14,20})'
+    critique: false
+
+  montant_ht:
+    patterns:
+      - 'Total HT\s*:\s*([\d.,]+)\s*EUR'
+    critique: true
+
+  taux_tva:
+    patterns:
+      - 'TVA\s*\(([\d.,]+)\s*%\)'
+    critique: true
+
+  montant_tva:
+    patterns:
+      - 'TVA\s*\([\d.,]+\s*%\)\s*:\s*([\d.,]+)\s*EUR'
+    critique: true
+
+  montant_ttc:
+    patterns:
+      - '(?:Total TTC|Net à payer|Montant total TTC)\s*:\s*([\d.,]+)\s*EUR'
+    critique: true
