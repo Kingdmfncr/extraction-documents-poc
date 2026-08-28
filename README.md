@@ -1,5 +1,7 @@
 # Extraction Structurée de Documents Métier
 
+🔗 **Démo live** : [extraction-documents-poc.streamlit.app](https://extraction-documents-poc.streamlit.app/)
+
 ⚠️ **Projet personnel (POC)** — démonstration de méthode. Fournisseurs **réels** (API Sirene officielle, `recherche-entreprises.api.gouv.fr`, licence ouverte, aucune clé requise) ; contenu des factures (numéros, montants, lignes) **entièrement simulé**. Aucune entreprise cliente ni ESN nommée.
 
 Je voulais comprendre comment automatiser la saisie de factures fournisseurs sans faire aveuglément confiance à l'extraction : un moteur qui trouve tous les champs sur une facture peut quand même laisser passer une facture fausse (erreur de calcul du fournisseur), et un champ absent n'est pas toujours une anomalie (un SIRET omis reste une facture valable, juste incomplète) — alors j'ai construit ce projet, étape par étape.
