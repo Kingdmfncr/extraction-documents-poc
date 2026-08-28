@@ -32,6 +32,18 @@ Distinction volontaire du moteur d'extraction : un champ peut être extrait avec
 
 Repris du même design (palette, structure sidebar/onglets/KPI) que `data-quality-pipeline`, pour cohérence visuelle du portfolio. 4 onglets : vue d'ensemble, file de vérification, détail complet, transparence sur les règles déclarées. Le pipeline (fournisseurs → génération PDF → extraction → contrôle) est rejoué en mémoire à chaque lancement (`@st.cache_data`), avec génération des PDF uniquement si absents du dossier — évite de re-générer 40 PDF à chaque rerun en développement local.
 
+## Étape 5 — Upload réel, score de confiance, précision mesurée (2026-08-28)
+
+Trois pistes retenues pour rendre le projet plus utile (même méthode que le projet fertilité) :
+
+1. **Score de confiance par champ** (`ChampExtrait.confiance`, `extractor.py`) : jamais un pourcentage inventé, dérivé de 2 signaux réels du pipeline — quel pattern a matché (le premier déclaré dans `extraction_rules.yaml` est censé être le plus fiable) et si la normalisation a réussi à interpréter le texte trouvé. **Trou détecté en construisant cette fonctionnalité** : un champ trouvé par regex mais dont la normalisation échoue (`_normaliser_montant` retourne `None` sur un texte illisible) avait `trouve=True` et `valeur=None` sans que ce cas soit distingué d'un simple champ vide — silencieusement faux plutôt qu'incertain. Corrigé en donnant à ce cas une confiance basse (0.3) explicite plutôt qu'une valeur vide muette.
+2. **Upload d'une vraie facture** (nouvel onglet du dashboard, `st.file_uploader`) : extraction en direct sur le fichier déposé par l'utilisateur, avec le même moteur que les 40 factures de démo. Testé avec une vraie facture PDF (une des factures générées, envoyée comme si elle venait d'un utilisateur externe) : extraction correcte des 7 champs, confiance 1.00 partout, statut OK.
+3. **Mesure de précision globale** (`src/eval.py`, même principe que `rag-connaissances-internes-poc/src/eval.py`) : compare chaque champ extrait à la vérité terrain connue (`data/raw/verite_terrain.csv`, produite par le générateur au moment de créer les factures). SIRET exclu de la mesure : ~10% des factures ne l'affichent pas du tout par construction (non-critique), le compter aurait faussé le taux à la baisse pour un cas qui n'est pas une erreur d'extraction.
+
+**Résultat honnête, pas caché** : précision mesurée à 100% sur les 40 factures de démo — attendu, puisque les regex de `extraction_rules.yaml` ont été calées sur les formats mêmes que le générateur produit. La vraie valeur du chiffre se voit sur l'onglet upload, avec un document dont le format n'a pas été vu à l'avance.
+
+**Vérifié dans le navigateur** : chargement du dashboard, section précision affichée (100%, détail par champ), upload d'une facture réelle testé de bout en bout (drag&drop simulé via l'API File du navigateur, pas seulement `extractor.extraire_facture()` appelé en Python), badges de confiance corrects, aucune erreur console. 8 tests Pytest supplémentaires (18 → 26 au total).
+
 ---
 
 ## Ce que ce projet prouve (pour un client ou un recruteur)
@@ -42,6 +54,7 @@ Repris du même design (palette, structure sidebar/onglets/KPI) que `data-qualit
 | Distinction trou d'extraction vs incohérence métier | Deux modules séparés (`extractor.py` / `quality_check.py`), jamais mélangés dans un seul indicateur |
 | Rigueur méthodologique | Bug d'environnement (Pillow/pdfplumber) résolu par vérification réelle, pas supposition ; FutureWarning pandas trouvé et corrigé avec test dédié |
 | Vérification, pas confiance aveugle | Chaque étape testée en local et dans le navigateur avant de passer à la suivante ; dédoublonnage contre le portfolio existant avant de commencer à coder |
+| Fiabilité mesurée, pas déclarée | Étape 5 : précision d'extraction mesurée contre une vérité terrain connue, score de confiance par champ dérivé de signaux réels du pipeline, upload d'un vrai document externe testé |
 
 ---
 

@@ -37,6 +37,7 @@ class ChampExtrait:
     valeur: object = None
     trouve: bool = False
     critique: bool = True
+    rang_pattern: int = None  # index (0 = premier) du pattern qui a matché, ajouté le 28/08
 
     @property
     def manquant_anormal(self):
@@ -45,13 +46,29 @@ class ChampExtrait:
         l'est pas — voir extraction_rules.yaml."""
         return self.critique and not self.trouve
 
+    @property
+    def confiance(self):
+        """Score 0-1, ajouté le 28/08 — jamais un pourcentage inventé,
+        reflète 2 signaux réels du pipeline : quel pattern a matché (le
+        premier pattern déclaré dans extraction_rules.yaml est censé être
+        le plus fiable, un pattern de repli l'est moins) et si la
+        normalisation (date/montant/SIRET) a réussi à interpréter le texte
+        trouvé. Un champ trouvé par regex mais que la normalisation
+        n'arrive pas à parser reste `trouve=True` mais avec une confiance
+        basse plutôt que masqué comme un simple champ vide."""
+        if not self.trouve:
+            return 0.0
+        if self.valeur_brute is not None and self.valeur is None:
+            return 0.3
+        return max(0.5, 1.0 - 0.25 * (self.rang_pattern or 0))
+
 
 def _extraire_champ(texte, nom_champ, config_champ):
-    for pattern in config_champ["patterns"]:
+    for rang, pattern in enumerate(config_champ["patterns"]):
         m = re.search(pattern, texte, flags=re.IGNORECASE)
         if m:
-            return ChampExtrait(nom=nom_champ, valeur_brute=m.group(1),
-                                 trouve=True, critique=config_champ.get("critique", True))
+            return ChampExtrait(nom=nom_champ, valeur_brute=m.group(1), trouve=True,
+                                 critique=config_champ.get("critique", True), rang_pattern=rang)
     return ChampExtrait(nom=nom_champ, trouve=False, critique=config_champ.get("critique", True))
 
 
@@ -116,6 +133,7 @@ def champs_to_record(nom_fichier, champs):
     for nom_champ, champ in champs.items():
         record[nom_champ] = champ.valeur
         record[f"{nom_champ}_trouve"] = champ.trouve
+        record[f"{nom_champ}_confiance"] = champ.confiance
     record["nb_champs_critiques_manquants"] = sum(
         1 for c in champs.values() if c.manquant_anormal
     )

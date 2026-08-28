@@ -19,6 +19,7 @@ RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 sys.path.insert(0, str(SRC_DIR))
 
 import entreprises
+import eval as extraction_eval  # "eval" est un mot réservé Python, alias explicite
 import extractor
 import generator
 import quality_check
@@ -73,7 +74,12 @@ def load_all():
     with open(CONFIG_DIR / "extraction_rules.yaml", encoding="utf-8") as f:
         regles = yaml.safe_load(f)["champs"]
 
-    return {"df": df, "resume": resume, "regles": regles}
+    precision_globale, precision_par_champ, _ = extraction_eval.evaluer(df_extrait)
+
+    return {
+        "df": df, "resume": resume, "regles": regles,
+        "precision_globale": precision_globale, "precision_par_champ": precision_par_champ,
+    }
 
 
 data = load_all()
@@ -109,7 +115,8 @@ c2.metric("OK", resume["OK"])
 c3.metric("À vérifier", resume["A verifier"])
 c4.metric("Anomalie", resume["Anomalie"])
 
-tabs = st.tabs(["Vue d'ensemble", "Factures à vérifier", "Détail extraction", "Règles d'extraction"])
+tabs = st.tabs(["Vue d'ensemble", "Factures à vérifier", "Détail extraction",
+                "Règles d'extraction", "Uploader une facture"])
 
 with tabs[0]:
     rep_statut = df["statut"].value_counts()
@@ -117,6 +124,20 @@ with tabs[0]:
                             marker=dict(colors=[STATUT_COLORS[s] for s in rep_statut.index])))
     fig.update_layout(title="Répartition des factures par statut", height=320, **CHART_DEFAULTS)
     st.plotly_chart(fig, use_container_width=True, key="chart_statut")
+
+    st.subheader("Précision d'extraction mesurée")
+    st.caption(
+        "Comparaison champ par champ entre ce qui a été extrait et la vérité terrain connue "
+        "(`data/raw/verite_terrain.csv`, produite par le générateur) — un vrai chiffre mesuré, "
+        "pas une estimation. Le SIRET est exclu : ~10% des factures ne l'affichent pas du tout "
+        "par construction, ce n'est pas une erreur d'extraction."
+    )
+    if data["precision_globale"] is None:
+        st.caption("Vérité terrain indisponible (fichier absent) — précision non calculable.")
+    else:
+        cg, cd = st.columns([1, 2])
+        cg.metric("Précision globale", f"{data['precision_globale']}%")
+        cd.dataframe(data["precision_par_champ"].rename("Précision (%)"), use_container_width=True)
 
     st.info(
         f"{int(df['siret_manquant'].sum())} facture(s) sans SIRET visible sur le document "
@@ -156,3 +177,38 @@ with tabs[3]:
             "Nb patterns essayés": len(meta["patterns"]),
         })
     st.dataframe(pd.DataFrame(lignes), use_container_width=True, hide_index=True)
+
+with tabs[4]:
+    st.caption(
+        "Dépose une vraie facture PDF (pas une des 40 factures simulées de la démo) : "
+        "l'extraction tourne en direct sur ton document, avec le même moteur déclaratif. "
+        "Les patterns de `config/extraction_rules.yaml` sont calés sur le format de la démo — "
+        "un format très différent peut légitimement ne rien trouver, c'est un vrai test, pas "
+        "un tour de magie."
+    )
+    fichier_uploade = st.file_uploader("Facture PDF", type="pdf")
+
+    if fichier_uploade is not None:
+        try:
+            champs = extractor.extraire_facture(fichier_uploade)
+        except Exception as exc:
+            st.error(f"Échec de lecture du PDF : {exc}")
+        else:
+            record = extractor.champs_to_record(fichier_uploade.name, champs)
+            df_upload = pd.DataFrame([record])
+            df_upload = quality_check.executer_controles(df_upload, date_reference=DATE_REFERENCE)
+            ligne = df_upload.iloc[0]
+
+            st.markdown(f"**Statut** : {ligne['statut']}")
+            for nom_champ in data["regles"].keys():
+                valeur = ligne.get(nom_champ)
+                confiance = ligne.get(f"{nom_champ}_confiance", 0.0)
+                trouve = ligne.get(f"{nom_champ}_trouve", False)
+                emoji = "🟢" if confiance >= 0.8 else ("🟡" if confiance > 0 else "⚪")
+                affichage = valeur if trouve and pd.notna(valeur) else "_non trouvé_"
+                st.markdown(f"{emoji} **{nom_champ}** : {affichage}  (confiance {confiance:.2f})")
+
+            if ligne.get("ecart_ttc_incoherent"):
+                st.warning(f"⚠️ Incohérence de calcul détectée (écart de {ligne['ecart_ttc_montant']} EUR).")
+            if ligne.get("nb_champs_critiques_manquants", 0) > 0:
+                st.warning(f"⚠️ {int(ligne['nb_champs_critiques_manquants'])} champ(s) critique(s) non trouvé(s).")
